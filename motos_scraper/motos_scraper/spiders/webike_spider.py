@@ -1,0 +1,174 @@
+import scrapy
+from bs4 import BeautifulSoup
+import json
+import re
+import logging
+import random
+from scrapy_playwright.page import PageMethod
+from scrapy.crawler import CrawlerProcess
+from scrapy.utils.project import get_project_settings
+from motos_scraper.items import MotosScraperItem
+
+with open("../motos.json", "r", encoding="utf-8") as f:
+    motos = json.load(f)
+
+logger = logging.getLogger(__name__)
+
+def normalize(s):
+    if not s:
+        return ""
+    s = s.lower().replace(" ", "")
+    # s = re.sub(r'[()\[\]{}]', '', s)
+    # s = re.sub(r'[^a-z0-9]', '', s)
+    return s
+
+
+class WebikeSpider(scrapy.Spider):
+    name = "webike_spider_alone"
+    start_urls = [
+            "https://www.webike.com.ru/Moto/honda/",
+            "https://www.webike.com.ru/Moto/kawasaki/",
+            "https://www.webike.com.ru/Moto/harley-davidson/",
+            "https://www.webike.com.ru/Moto/bmw/",
+            "https://www.webike.com.ru/Moto/yamaha/",
+            "https://www.webike.com.ru/Moto/ktm/",
+            "https://www.webike.com.ru/Moto/suzuki/",
+            "https://www.webike.com.ru/Moto/triumph/",
+            "https://www.webike.com.ru/Moto/ducati/",
+            "https://www.webike.com.ru/Moto/buell/",
+        ]
+
+    custom_settings = {
+            "DEFAULT_REQUEST_HEADERS": {
+                "User-Agent": (
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/131.0.0.0 Safari/537.36"
+                )
+            }
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.motos = motos
+        self.normalized_motos = {}
+        for moto in motos:
+            norm = normalize(moto["model"])
+            self.normalized_motos.setdefault(norm, []).append(moto)
+
+    def parse(self, response):
+        soup = BeautifulSoup(response.text, "html.parser")
+
+        for div in soup.select("div.model_name"):
+            a_tag = div.find("a")
+            if not a_tag:
+                continue
+            title = a_tag.get_text(strip=True)
+            href = a_tag.get("href")
+            modified_url = href.replace("mtop/", "m-spec/")
+
+            normalized_name = normalize(title)
+
+            if normalized_name in self.normalized_motos:
+                yield scrapy.Request(
+                    url=modified_url,
+                    callback=self.parse_model_info,
+                    meta={"normalized": normalized_name, "title": title, "url": modified_url},
+                    dont_filter=True,
+                )
+            else:
+                self.logger.debug(f"[ПРОПУСК webike] {title}")
+
+    def parse_model_info(self, response):
+        normalized_name = response.meta["normalized"]
+        title = response.meta["title"]
+
+        soup = BeautifulSoup(response.text, "html.parser")
+
+        table = soup.find("table", class_="md-specifications_table")
+        if not table:
+            self.logger.info(f"[WEBike] Не найдена таблица для {title}")
+            return
+
+        matching_motos = self.normalized_motos.get(normalized_name, [])
+        if not matching_motos:
+            return
+            
+        moto = matching_motos[0]
+
+        item = MotosScraperItem()
+        item["source"] = "webike"
+        item["source_url"] = response.url
+        item["api_id"] = moto.get("api_id")
+        item["brand"] = moto.get("brand")
+        item["model"] = moto.get("model")
+        item["year"] = moto.get("year")
+
+        for tr in table.find_all("tr"):
+            tds = tr.find_all("td")
+            if len(tds) < 4:
+                continue
+
+            header1 = tds[0].get_text(strip=True)
+            value1 = tds[1].get_text(strip=True)
+            header2 = tds[2].get_text(strip=True)
+            value2 = tds[3].get_text(strip=True)
+
+            if header1 == "производитель":
+                item["brand"] = value1
+            elif header1 == "Название модели":
+                item["model"] = value1
+            elif header1 == "Год выпуска":
+                item["year"] = value1
+            elif header2 == "Тип двигателя":
+                item["engine_type"] = value2
+            elif header1 == "Объём двигателя":
+                match = re.search(r'(\d+)', value1)
+                if match:
+                    item["engine_displacement_cc"] = match.group(1)
+            elif header2 == "Максимальная мощность (л.с)":
+                power_match = re.search(r'(\d+)ps', value2)
+                rpm_match = re.search(r'/(\d+)rpm', value2)
+                if power_match:
+                    item["engine_power_hp"] = power_match.group(1)
+                if rpm_match:
+                    item["engine_power_rpm"] = rpm_match.group(1)
+            elif header2 == "Максимальный крутящий момент (кгс*м)":
+                torque_match = re.search(r'(\d+\.?\d*)N・m', value2)
+                rpm_match = re.search(r'/(\d+)rpm', value2)
+                if torque_match:
+                    item["engine_torque_nm"] = torque_match.group(1)
+                if rpm_match:
+                    item["engine_torque_rpm"] = rpm_match.group(1)
+            elif header2 == "Вес мотоцикла (Сухой вес)":
+                match = re.search(r'(\d+)', value2)
+                if match:
+                    item["dry_weight_kg"] = match.group(1)
+            elif header2 == "Снаряженная масса":
+                match = re.search(r'(\d+)', value2)
+                if match:
+                    item["wet_weight_kg"] = match.group(1)
+            elif header1 == "Емкость топливного бака":
+                match = re.search(r'(\d+\.?\d*)', value1)
+                if match:
+                    item["fuel_capacity_l"] = match.group(1)
+
+        if item.get("brand"):
+            brand_lower = item["brand"].lower()
+            if brand_lower in ["honda", "kawasaki", "yamaha", "suzuki"]:
+                item["origin_country"] = "Japan"
+            elif brand_lower in ["harley-davidson", "buell"]:
+                item["origin_country"] = "USA"
+            elif brand_lower in ["bmw"]:
+                item["origin_country"] = "Germany"
+            elif brand_lower in ["ktm"]:
+                item["origin_country"] = "Austria"
+            elif brand_lower in ["triumph"]:
+                item["origin_country"] = "Britain"
+            elif brand_lower in ["ducati"]:
+                item["origin_country"] = "Italy"
+            
+
+        self.logger.info(f"[НАШЕЛ webike] {title} - {item['engine_power_hp']}")
+        yield item
+

@@ -2,3 +2,4 @@ scrapy==2.13.3
 bs4==4.13.5
 scrapy_playwright==0.0.44
 playwright==1.55.0
+sqlalchemy==2.0.43

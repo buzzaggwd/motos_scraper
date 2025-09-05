@@ -58,10 +58,11 @@ DOWNLOAD_DELAY = 1
 
 # Configure item pipelines
 # See https://docs.scrapy.org/en/latest/topics/item-pipeline.html
-# ITEM_PIPELINES = {
-# #    "motos_scraper.pipelines.MotosScraperPipeline": 300,
+ITEM_PIPELINES = {
+#    "motos_scraper.pipelines.MotosScraperPipeline": 300,
+    "motos_scraper.pipelines.MotosScraperPipelineNew": 300,
 #    "motos_scraper.pipelines.MotosJsonPipeline": 300,
-# }
+}
 
 # Enable and configure the AutoThrottle extension (disabled by default)
 # See https://docs.scrapy.org/en/latest/topics/autothrottle.html
@@ -116,4 +117,4 @@ PLAYWRIGHT_CLOSE_CONTEXT = True
 # Logs
 LOG_ENABLED = True
 LOG_LEVEL = "INFO"
-LOG_FILE = 'scrapy.log'
+# LOG_FILE = 'scrapy.log'
