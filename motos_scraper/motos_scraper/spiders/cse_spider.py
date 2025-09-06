@@ -1,35 +1,15 @@
 import scrapy
-from bs4 import BeautifulSoup
 import json
 import re
 import logging
 import random
 from scrapy_playwright.page import PageMethod
-from scrapy.crawler import CrawlerProcess
-from scrapy.utils.project import get_project_settings
 from motos_scraper.items import MotosScraperItem
-import warnings
-import asyncio
-import sys
-
-# warnings.filterwarnings("ignore", category=DeprecationWarning, module="asyncio")
-# logging.getLogger('asyncio').setLevel(logging.ERROR)
-# logging.getLogger('twisted').setLevel(logging.ERROR)
-
-# logging.basicConfig(level=logging.INFO)
 
 with open("../motos.json", "r", encoding="utf-8") as f:
     motos = json.load(f)
 
 logger = logging.getLogger(__name__)
-
-# def normalize(s):
-#     if not s:
-#         return ""
-#     s = s.lower().replace(" ", "")
-#     s = re.sub(r'[()\[\]{}]', '', s)
-#     s = re.sub(r'[^a-z0-9]', '', s)
-#     return s
 
 with open("../proxies.txt") as proxy_file:
     proxies = [line.strip() for line in proxy_file]
@@ -56,9 +36,7 @@ rotator = ProxyRotator(proxies)
 class CseSpider(scrapy.Spider):
     name = "cse_spider"
     custom_settings = {
-        # "CONCURRENT_REQUESTS": 10, 
         "LOG_LEVEL": "INFO",
-        # "PLAYWRIGHT_MAX_PAGES_PER_CONTEXT": 4,
         "DOWNLOAD_TIMEOUT": 180,
         "RETRY_ENABLED": True,
         "RETRY_TIMES": 5,
@@ -76,7 +54,6 @@ class CseSpider(scrapy.Spider):
         },
         "DOWNLOAD_TIMEOUT": 120,
         "DOWNLOAD_DELAY": random.uniform(1, 3),
-        # "PLAYWRIGHT_DEFAULT_NAVIGATION_TIMEOUT": 60000,
         "PLAYWRIGHT_DEFAULT_NAVIGATION_TIMEOUT": 0,
         "PLAYWRIGHT_ABORT_REQUEST": lambda req: req.resource_type in ["image", "media", "font", "stylesheet"],
         "USER_AGENT_ROTATION": True,
@@ -94,7 +71,7 @@ class CseSpider(scrapy.Spider):
 
             proxy = rotator.get_proxy()
             self.logger.info(f"Использую прокси: {proxy['server']} для {moto['model']}")
-            
+
             yield scrapy.Request(
                 url=url,
                 meta={
@@ -105,11 +82,9 @@ class CseSpider(scrapy.Spider):
                     },
                     "playwright_page_methods": [
                         PageMethod("wait_for_selector", "div.gsc-expansionArea", state="attached", timeout=120000),
-                        # PageMethod("close"),
                     ],
                     "playwright_page_goto_kwargs": {"wait_until": "domcontentloaded",},
                     "moto": moto,
-                    # "proxy": rotator.get_proxy(),
                 },
                 callback=self.parse_cse,
                 dont_filter=True,
@@ -132,8 +107,6 @@ class CseSpider(scrapy.Spider):
                 )
             else:
                 self.logger.info(f"[ПРОПУСК cse] нет ссылки {moto["model"]}")
-                # yield moto
-                # self.results.append(moto)
         except Exception as e:
             self.logger.info(f"[ПРОПУСК cse] нет ссылки {moto["model"]}")
 
@@ -143,7 +116,6 @@ class CseSpider(scrapy.Spider):
     def parse_moto_page(self, response):
         moto = response.meta["moto"]
         trs = response.css("tr")
-        found_power = False
 
         self.logger.info(f"[cse] Зашел на страницу {response.url} для {moto['model']}")
 
@@ -230,9 +202,6 @@ class CseSpider(scrapy.Spider):
                 item["origin_country"] = "Italy"
             else:
                 item["origin_country"] = None
-
-        # if not found_power:
-        #     self.logger.info(f"[ПРОПУСК cse] {moto['model']}")
 
         self.logger.info(
             f"[СОБРАЛ cse] {item.get('model')}, {item.get('engine_type')}, {item.get('engine_displacement_cc')}, "
