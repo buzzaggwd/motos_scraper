@@ -4,3 +4,5 @@ scrapy.log
 *.json
 *.db
 *.sqlite
+proxies.txt
+check_proxy.py

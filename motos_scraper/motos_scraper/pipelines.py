@@ -157,7 +157,7 @@ class MotosScraperPipeline:
 
 class MotosScraperPipelineNew:
     def open_spider(self, spider):
-        self.connection = sqlite3.connect("motos_bikez_i_hope_final.db")
+        self.connection = sqlite3.connect("motos_cse5.db")
         self.cursor = self.connection.cursor()
         self.cursor.execute("""
             CREATE TABLE IF NOT EXISTS motos (
