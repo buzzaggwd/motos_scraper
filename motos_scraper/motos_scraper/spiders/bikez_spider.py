@@ -3,10 +3,6 @@ from bs4 import BeautifulSoup
 import json
 import re
 import logging
-import random
-from scrapy_playwright.page import PageMethod
-from scrapy.crawler import CrawlerProcess
-from scrapy.utils.project import get_project_settings
 from motos_scraper.items import MotosScraperItem
 from collections import defaultdict
 from difflib import SequenceMatcher
@@ -45,7 +41,7 @@ def normalize_brand(brand):
 def similar(a, b):
     return SequenceMatcher(None, a, b).ratio()
 
-class BikezSpiderCatalog(scrapy.Spider):
+class BikezSpider(scrapy.Spider):
     name = "bikez_spider"
 
     custom_settings = {
@@ -107,9 +103,10 @@ class BikezSpiderCatalog(scrapy.Spider):
                 best_key = None
                 best_score = 0.0
                 for key in index.keys():
-                    sc = similar(model_name, key)
-                    if sc > best_score:
-                        best_score, best_key = sc, key
+                    score = similar(model_name, key)
+                    if score > best_score:
+                        best_score = score 
+                        best_key = key
                 if best_score >= 0.90:
                     matches = index[best_key]
 
@@ -228,10 +225,11 @@ class BikezSpiderCatalog(scrapy.Spider):
                     item["origin_country"] = "Italy"
                 else:
                     item["origin_country"] = None
-            yield item
+            
 
             if item.get("engine_power_hp"):
                 self.logger.info(f"[НАШЕЛ bikez] {item['model']} - {item.get('engine_power_hp')}")
+                yield item
 
             else:
                 self.logger.info(f"[НАШЕЛ bikez] {item['model']} - нет мощности")

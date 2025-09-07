@@ -3,11 +3,8 @@ from bs4 import BeautifulSoup
 import json
 import re
 import logging
-import random
-from scrapy_playwright.page import PageMethod
-from scrapy.crawler import CrawlerProcess
-from scrapy.utils.project import get_project_settings
 from motos_scraper.items import MotosScraperItem
+from difflib import SequenceMatcher
 
 with open("../motos.json", "r", encoding="utf-8") as f:
     motos = json.load(f)
@@ -17,14 +14,17 @@ logger = logging.getLogger(__name__)
 def normalize(s):
     if not s:
         return ""
-    s = s.lower().replace(" ", "")
-    # s = re.sub(r'[()\[\]{}]', '', s)
-    # s = re.sub(r'[^a-z0-9]', '', s)
+    s = s.lower().strip()
+    s = re.sub(r'[()\[\]{}]', '', s)
+    s = re.sub(r'[^a-z0-9 ]', ' ', s)
+    s = re.sub(r'\s+', ' ', s).strip()
     return s
 
+def similar(a, b):
+    return SequenceMatcher(None, a, b).ratio()
 
 class WebikeSpider(scrapy.Spider):
-    name = "webike_spider_alone"
+    name = "webike_spider"
     start_urls = [
             "https://www.webike.com.ru/Moto/honda/",
             "https://www.webike.com.ru/Moto/kawasaki/",
@@ -69,6 +69,17 @@ class WebikeSpider(scrapy.Spider):
 
             normalized_name = normalize(title)
 
+            match = None
+            max_similarity = 0.0
+
+            for moto in self.normalized_motos:
+                sc = similar(normalized_name, moto)
+                if sc > max_similarity:
+                    max_similarity = sc
+                    match = moto
+            if max_similarity>=0.90:
+                normalized_name = match
+
             if normalized_name in self.normalized_motos:
                 yield scrapy.Request(
                     url=modified_url,
@@ -87,88 +98,91 @@ class WebikeSpider(scrapy.Spider):
 
         table = soup.find("table", class_="md-specifications_table")
         if not table:
-            self.logger.info(f"[WEBike] Не найдена таблица для {title}")
+            self.logger.info(f"[ПРОПУСК webike] Не найдена таблица для {title}")
             return
 
         matching_motos = self.normalized_motos.get(normalized_name, [])
         if not matching_motos:
             return
             
-        moto = matching_motos[0]
+        for moto in matching_motos:
+            item = MotosScraperItem()
+            item["source"] = "webike"
+            item["source_url"] = response.url
+            item["api_id"] = moto.get("api_id")
+            item["brand"] = moto.get("brand")
+            item["model"] = moto.get("model")
+            item["year"] = moto.get("year")
 
-        item = MotosScraperItem()
-        item["source"] = "webike"
-        item["source_url"] = response.url
-        item["api_id"] = moto.get("api_id")
-        item["brand"] = moto.get("brand")
-        item["model"] = moto.get("model")
-        item["year"] = moto.get("year")
+            for tr in table.find_all("tr"):
+                tds = tr.find_all("td")
+                if len(tds) < 4:
+                    continue
 
-        for tr in table.find_all("tr"):
-            tds = tr.find_all("td")
-            if len(tds) < 4:
-                continue
+                header1 = tds[0].get_text(strip=True)
+                value1 = tds[1].get_text(strip=True)
+                header2 = tds[2].get_text(strip=True)
+                value2 = tds[3].get_text(strip=True)
 
-            header1 = tds[0].get_text(strip=True)
-            value1 = tds[1].get_text(strip=True)
-            header2 = tds[2].get_text(strip=True)
-            value2 = tds[3].get_text(strip=True)
+                if header1 == "производитель":
+                    item["brand"] = value1
+                elif header1 == "Название модели":
+                    item["model"] = value1
+                elif header1 == "Год выпуска":
+                    item["year"] = value1
+                elif header2 == "Тип двигателя":
+                    item["engine_type"] = value2
+                elif header1 == "Объём двигателя":
+                    match = re.search(r'(\d+)', value1)
+                    if match:
+                        item["engine_displacement_cc"] = match.group(1)
+                elif header2 == "Максимальная мощность (л.с)":
+                    power_match = re.search(r'(\d+)ps', value2)
+                    rpm_match = re.search(r'/(\d+)rpm', value2)
+                    if power_match:
+                        item["engine_power_hp"] = power_match.group(1)
+                    if rpm_match:
+                        item["engine_power_rpm"] = rpm_match.group(1)
+                elif header2 == "Максимальный крутящий момент (кгс*м)":
+                    torque_match = re.search(r'(\d+\.?\d*)N・m', value2)
+                    rpm_match = re.search(r'/(\d+)rpm', value2)
+                    if torque_match:
+                        item["engine_torque_nm"] = torque_match.group(1)
+                    if rpm_match:
+                        item["engine_torque_rpm"] = rpm_match.group(1)
+                elif header2 == "Вес мотоцикла (Сухой вес)":
+                    match = re.search(r'(\d+)', value2)
+                    if match:
+                        item["dry_weight_kg"] = match.group(1)
+                elif header2 == "Снаряженная масса":
+                    match = re.search(r'(\d+)', value2)
+                    if match:
+                        item["wet_weight_kg"] = match.group(1)
+                elif header1 == "Емкость топливного бака":
+                    match = re.search(r'(\d+\.?\d*)', value1)
+                    if match:
+                        item["fuel_capacity_l"] = match.group(1)
 
-            if header1 == "производитель":
-                item["brand"] = value1
-            elif header1 == "Название модели":
-                item["model"] = value1
-            elif header1 == "Год выпуска":
-                item["year"] = value1
-            elif header2 == "Тип двигателя":
-                item["engine_type"] = value2
-            elif header1 == "Объём двигателя":
-                match = re.search(r'(\d+)', value1)
-                if match:
-                    item["engine_displacement_cc"] = match.group(1)
-            elif header2 == "Максимальная мощность (л.с)":
-                power_match = re.search(r'(\d+)ps', value2)
-                rpm_match = re.search(r'/(\d+)rpm', value2)
-                if power_match:
-                    item["engine_power_hp"] = power_match.group(1)
-                if rpm_match:
-                    item["engine_power_rpm"] = rpm_match.group(1)
-            elif header2 == "Максимальный крутящий момент (кгс*м)":
-                torque_match = re.search(r'(\d+\.?\d*)N・m', value2)
-                rpm_match = re.search(r'/(\d+)rpm', value2)
-                if torque_match:
-                    item["engine_torque_nm"] = torque_match.group(1)
-                if rpm_match:
-                    item["engine_torque_rpm"] = rpm_match.group(1)
-            elif header2 == "Вес мотоцикла (Сухой вес)":
-                match = re.search(r'(\d+)', value2)
-                if match:
-                    item["dry_weight_kg"] = match.group(1)
-            elif header2 == "Снаряженная масса":
-                match = re.search(r'(\d+)', value2)
-                if match:
-                    item["wet_weight_kg"] = match.group(1)
-            elif header1 == "Емкость топливного бака":
-                match = re.search(r'(\d+\.?\d*)', value1)
-                if match:
-                    item["fuel_capacity_l"] = match.group(1)
+            if item.get("brand"):
+                brand_lower = item["brand"].lower()
+                if brand_lower in ["honda", "kawasaki", "yamaha", "suzuki"]:
+                    item["origin_country"] = "Japan"
+                elif brand_lower in ["harley-davidson", "buell"]:
+                    item["origin_country"] = "USA"
+                elif brand_lower in ["bmw"]:
+                    item["origin_country"] = "Germany"
+                elif brand_lower in ["ktm"]:
+                    item["origin_country"] = "Austria"
+                elif brand_lower in ["triumph"]:
+                    item["origin_country"] = "Britain"
+                elif brand_lower in ["ducati"]:
+                    item["origin_country"] = "Italy"
+                
+            if item.get("engine_power_hp"):
+                self.logger.info(f"[НАШЕЛ webike] {title} - {item.get('engine_power_hp')}")
+                yield item
 
-        if item.get("brand"):
-            brand_lower = item["brand"].lower()
-            if brand_lower in ["honda", "kawasaki", "yamaha", "suzuki"]:
-                item["origin_country"] = "Japan"
-            elif brand_lower in ["harley-davidson", "buell"]:
-                item["origin_country"] = "USA"
-            elif brand_lower in ["bmw"]:
-                item["origin_country"] = "Germany"
-            elif brand_lower in ["ktm"]:
-                item["origin_country"] = "Austria"
-            elif brand_lower in ["triumph"]:
-                item["origin_country"] = "Britain"
-            elif brand_lower in ["ducati"]:
-                item["origin_country"] = "Italy"
-            
+            else:
+                self.logger.info(f"[НАШЕЛ webike] {title} - нет мощности")
 
-        self.logger.info(f"[НАШЕЛ webike] {title} - {item['engine_power_hp']}")
-        yield item
 
