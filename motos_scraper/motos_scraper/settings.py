@@ -46,9 +46,26 @@ DOWNLOAD_DELAY = 1
 
 # Enable or disable downloader middlewares
 # See https://docs.scrapy.org/en/latest/topics/downloader-middleware.html
-#DOWNLOADER_MIDDLEWARES = {
+DOWNLOADER_MIDDLEWARES = {
 #    "motos_scraper.middlewares.MotosScraperDownloaderMiddleware": 543,
-#}
+#    "motos_scraper.middlewares.CustomProxyMiddleware": 350,
+   "rotating_proxies.middlewares.RotatingProxyMiddleware": 350,
+}
+
+def load_proxies(path):
+    proxies = []
+    with open(path, 'r') as f:
+        for line in f:
+            line = line.strip()
+            if line:
+                parts = line.split(':')
+                if len(parts) == 4:
+                    ip, port, login, password = parts
+                    proxy_url = f"http://{login}:{password}@{ip}:{port}"
+                    proxies.append(proxy_url)
+    return proxies
+
+ROTATING_PROXY_LIST = load_proxies("../proxies.txt")
 
 # Enable or disable extensions
 # See https://docs.scrapy.org/en/latest/topics/extensions.html
@@ -89,32 +106,34 @@ ITEM_PIPELINES = {
 FEED_EXPORT_ENCODING = "utf-8"
 
 
+# PLAYWRIGHT    
 # This configuration ensures that requests flagged with the playwright=True meta key will be processed by Playwright
 # Requests without this flag will be handled by Scrapy’s default download handler
-DOWNLOAD_HANDLERS = {
-    "http": "scrapy_playwright.handler.ScrapyPlaywrightDownloadHandler",
-    "https": "scrapy_playwright.handler.ScrapyPlaywrightDownloadHandler",
-}
+# DOWNLOAD_HANDLERS = {
+#     "http": "scrapy_playwright.handler.ScrapyPlaywrightDownloadHandler",
+#     "https": "scrapy_playwright.handler.ScrapyPlaywrightDownloadHandler",
+# }
 
 # Playwright requires an asyncio-compatible Twisted reactor to handle asynchronous tasks
-TWISTED_REACTOR = "twisted.internet.asyncioreactor.AsyncioSelectorReactor"
+# TWISTED_REACTOR = "twisted.internet.asyncioreactor.AsyncioSelectorReactor"
 
-PLAYWRIGHT_BROWSER_TYPE = "chromium"  # Choose 'chromium', 'firefox', or 'webkit'
-PLAYWRIGHT_LAUNCH_OPTIONS = {
-    "headless": True,  # Set to True if you prefer headless mode
-}
+# PLAYWRIGHT_BROWSER_TYPE = "chromium"  # Choose 'chromium', 'firefox', or 'webkit'
+# PLAYWRIGHT_LAUNCH_OPTIONS = {
+#     "headless": True,  # Set to True if you prefer headless mode
+# }
 
-PLAYWRIGHT_DEFAULT_NAVIGATION_TIMEOUT = 120000
+# PLAYWRIGHT_DEFAULT_NAVIGATION_TIMEOUT = 120000
+
+# CLOSESPIDER_TIMEOUT = 360
+# PLAYWRIGHT_CLOSE_PAGE = True
+# PLAYWRIGHT_CLOSE_CONTEXT = True
+
 
 
 ROBOTSTXT_OBEY = False
 
 
-# CLOSESPIDER_TIMEOUT = 360
-PLAYWRIGHT_CLOSE_PAGE = True
-PLAYWRIGHT_CLOSE_CONTEXT = True
-
 # Logs
 LOG_ENABLED = True
 LOG_LEVEL = "INFO"
-LOG_FILE = 'scrapy.log'
+# LOG_FILE = 'scrapy.log'

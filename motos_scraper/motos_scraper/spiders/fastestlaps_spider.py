@@ -36,6 +36,9 @@ class FastestlapsSpider(scrapy.Spider):
     start_urls = ["https://fastestlaps.com/makes"]
 
     custom_settings = {
+        "CONCURRENT_REQUESTS": 16,
+        "CONCURRENT_REQUESTS_PER_DOMAIN": 8,
+        "DOWNLOAD_DELAY": 2,
         "DOWNLOAD_TIMEOUT": 30,
         "RETRY_TIMES": 5,
         "DEFAULT_REQUEST_HEADERS": {
@@ -53,6 +56,7 @@ class FastestlapsSpider(scrapy.Spider):
         self.moto_map = {normalize(moto.get("model")): moto for moto in self.motos}
 
     def parse(self, response):
+        # self.logger.info(f"[ПАРСИНГ 1 fastestlaps] {response.url}")
         soup = BeautifulSoup(response.text, 'html.parser')
         for ul in soup.select("ul.fl-indexlist"):
             for li in ul.find_all("li"):
@@ -64,10 +68,11 @@ class FastestlapsSpider(scrapy.Spider):
                     yield scrapy.Request(
                         url=response.urljoin(href),
                         callback=self.parse_models_urls,
-                        headers={"User-Agent": random.choice(USER_AGENTS)}
+                        headers={"User-Agent": random.choice(USER_AGENTS)},
                     )
 
     def parse_models_urls(self, response):
+        # self.logger.info(f"[ПАРСИНГ 2 fastestlaps] {response.url}")
         soup = BeautifulSoup(response.text, 'html.parser')
         for ul in soup.select("ul.fl-indexlist"):
             for li in ul.find_all("li"):
@@ -82,9 +87,11 @@ class FastestlapsSpider(scrapy.Spider):
                     yield scrapy.Request(
                         url=response.urljoin(href),
                         callback=self.check_if_motocycle,
-                        meta={"item": item},
+                        meta={
+                            "item": item,
+                        },
                         dont_filter=True,
-                        headers={"User-Agent": random.choice(USER_AGENTS)}
+                        headers={"User-Agent": random.choice(USER_AGENTS)},
                     )
 
     def check_if_motocycle(self, response):
@@ -105,8 +112,10 @@ class FastestlapsSpider(scrapy.Spider):
             yield scrapy.Request(
                 url=item["source_url"],
                 callback=self.parse_models_info,
-                meta={"item": item},
-                headers={"User-Agent": random.choice(USER_AGENTS)}
+                meta={ 
+                    "item": item,
+                },
+                headers={"User-Agent": random.choice(USER_AGENTS)},
             )
         else:
             self.logger.info(f"[ПРОПУСК fastestlaps] {item['model']} не является мотоциклом")
@@ -131,14 +140,10 @@ class FastestlapsSpider(scrapy.Spider):
         if match and max_similarity >= 0.90:
             moto = self.moto_map[match]
 
-        # if normalized_name in self.moto_map:
-        #     moto = self.moto_map[normalized_name]
-
         if moto:
             item["api_id"] = moto.get("api_id")
             item["source"] = "fastestlaps"
             item["brand"] = moto.get("brand")
-            # item["model"] = moto.get("model")
             item["year"] = moto.get("year")
 
             for table in tables:
