@@ -37,17 +37,10 @@ class FastestlapsSpider(scrapy.Spider):
     start_urls = ["https://fastestlaps.com/makes"]
 
     custom_settings = {
-        "CONCURRENT_REQUESTS": 16,
-        "CONCURRENT_REQUESTS_PER_DOMAIN": 8,
-        "DOWNLOAD_DELAY": 2,
         "DOWNLOAD_TIMEOUT": 30,
         "RETRY_TIMES": 5,
-        "DEFAULT_REQUEST_HEADERS": {
-            "User-Agent": (
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/131.0.0.0 Safari/537.36"
-            )
+        'DOWNLOADER_MIDDLEWARES': {
+            'rotating_proxies.middlewares.RotatingProxyMiddleware': 350,
         }
     }
 
@@ -58,7 +51,6 @@ class FastestlapsSpider(scrapy.Spider):
         self.zero_items_in_row = 0
 
     def parse(self, response):
-        # self.logger.info(f"[ПАРСИНГ 1 fastestlaps] {response.url}")
         soup = BeautifulSoup(response.text, 'html.parser')
         brand_links = []
         for ul in soup.select("ul.fl-indexlist"):
@@ -77,7 +69,6 @@ class FastestlapsSpider(scrapy.Spider):
             )
 
     def parse_models_urls(self, response):
-        # self.logger.info(f"[ПАРСИНГ 2 fastestlaps] {response.url}")
         soup = BeautifulSoup(response.text, 'html.parser')
         for ul in soup.select("ul.fl-indexlist"):
             for li in ul.find_all("li"):
@@ -126,7 +117,6 @@ class FastestlapsSpider(scrapy.Spider):
             self.logger.info(f"[ПРОПУСК fastestlaps] {item['model']} не является мотоциклом")
 
     def parse_models_info(self, response):
-        self.logger.info(f"[ПАРСИНГ fastestlaps] {response.url}")
         soup = BeautifulSoup(response.text, 'html.parser')
         item = response.meta["item"]
         tables = soup.find_all("table", class_="fl-datasheet")
@@ -224,19 +214,21 @@ class FastestlapsSpider(scrapy.Spider):
 
             self.zero_items_in_row = 0
 
-            # if item.get("engine_power_hp"):
-            #     self.logger.info(f"[НАШЕЛ fastestlaps] {moto.get('model')} - {moto.get('engine_power_hp')}")
-            #     yield item
-            # else:
-            #     self.logger.info(f"[ПРОПУСК fastestlaps] {moto.get('model')}")
-            #     self.zero_items_in_row += 1
-            #     if self.zero_items_in_row >= 10:
-            #         raise CloseSpider(f"Превышен лимит пустых страниц: {self.zero_items_in_row}")
+            # СОХРАНЕНИЕ ТОЛЬКО ПРИ НАЙДЕННОЙ МОЩНОСТИ
+            if item.get("engine_power_hp"):
+                self.logger.info(f"[НАШЕЛ fastestlaps] {moto.get('model')} - {moto.get('engine_power_hp')}")
+                yield item
+            else:
+                self.logger.info(f"[ПРОПУСК fastestlaps] {moto.get('model')}")
 
-            self.logger.info(f"[НАШЕЛ fastestlaps] {item['model']}")
-            yield item
+
+            # СОХРАНЕНИЕ ДАЖЕ ПРИ ОТСУТСТВИИ МОЩНОСТИ
+            # self.logger.info(f"[НАШЕЛ fastestlaps] {item['model']}")
+            # yield item
+
+
         else:
-            self.logger.info(f"[ПРОПУСК fastestlaps] {item['model']} не найден в базе")
+            self.logger.info(f"[ПРОПУСК fastestlaps] {item['model']} не найден")
             self.zero_items_in_row += 1
             if self.zero_items_in_row >= 10:
                 raise CloseSpider(f"Превышен лимит пустых страниц: {self.zero_items_in_row}")

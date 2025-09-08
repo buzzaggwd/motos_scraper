@@ -8,6 +8,9 @@ from scrapy import signals
 # useful for handling different item types with a single interface
 from itemadapter import ItemAdapter
 
+from urllib.parse import urlparse
+import random
+
 
 class MotosScraperSpiderMiddleware:
     # Not all methods need to be defined. If a method is not defined,
@@ -98,3 +101,27 @@ class MotosScraperDownloaderMiddleware:
 
     def spider_opened(self, spider):
         spider.logger.info("Spider opened: %s" % spider.name)
+
+
+class PlaywrightProxyMiddleware:
+    def __init__(self, proxy_list):
+        self.proxy_list = proxy_list
+
+    @classmethod
+    def from_crawler(cls, crawler):
+        return cls(
+            proxy_list=crawler.settings.get('ROTATING_PROXY_LIST', [])
+        )
+
+    def process_request(self, request, spider):
+        if request.meta.get('playwright') and self.proxy_list:
+            proxy = random.choice(self.proxy_list)
+            parsed = urlparse(proxy)
+            
+            request.meta['playwright_context_kwargs'] = {
+                'proxy': {
+                    'server': f"{parsed.scheme}://{parsed.hostname}:{parsed.port}",
+                    'username': parsed.username,
+                    'password': parsed.password
+                }
+            }

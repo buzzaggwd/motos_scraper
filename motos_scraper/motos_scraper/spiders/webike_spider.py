@@ -38,16 +38,6 @@ class WebikeSpider(scrapy.Spider):
             "https://www.webike.com.ru/Moto/buell/",
         ]
 
-    custom_settings = {
-            "DEFAULT_REQUEST_HEADERS": {
-                "User-Agent": (
-                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                    "AppleWebKit/537.36 (KHTML, like Gecko) "
-                    "Chrome/131.0.0.0 Safari/537.36"
-                )
-            }
-        }
-
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.motos = motos
@@ -177,7 +167,8 @@ class WebikeSpider(scrapy.Spider):
                     item["origin_country"] = "Britain"
                 elif brand_lower in ["ducati"]:
                     item["origin_country"] = "Italy"
-                
+
+            # СОХРАНЕНИЕ ТОЛЬКО ПРИ НАЙДЕННОЙ МОЩНОСТИ
             if item.get("engine_power_hp"):
                 self.logger.info(f"[НАШЕЛ webike] {title} - {item.get('engine_power_hp')}")
                 yield item
@@ -185,4 +176,6 @@ class WebikeSpider(scrapy.Spider):
             else:
                 self.logger.info(f"[НАШЕЛ webike] {title} - нет мощности")
 
-
+            # СОХРАНЕНИЕ ДАЖЕ ПРИ ОТСУТСТВИИ МОЩНОСТИ
+            # self.logger.info(f"[НАШЕЛ webike] {title}")
+            # yield item

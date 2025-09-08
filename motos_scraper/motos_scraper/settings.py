@@ -19,11 +19,11 @@ ADDONS = {}
 #USER_AGENT = "motos_scraper (+http://www.yourdomain.com)"
 
 # Obey robots.txt rules
-ROBOTSTXT_OBEY = True
+ROBOTSTXT_OBEY = False
 
 # Concurrency and throttling settings
-#CONCURRENT_REQUESTS = 16
-CONCURRENT_REQUESTS_PER_DOMAIN = 1
+CONCURRENT_REQUESTS = 16
+CONCURRENT_REQUESTS_PER_DOMAIN = 8
 DOWNLOAD_DELAY = 1
 
 # Disable cookies (enabled by default)
@@ -33,10 +33,15 @@ DOWNLOAD_DELAY = 1
 #TELNETCONSOLE_ENABLED = False
 
 # Override the default request headers:
-#DEFAULT_REQUEST_HEADERS = {
-#    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+DEFAULT_REQUEST_HEADERS = {
+   "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
 #    "Accept-Language": "en",
-#}
+   "User-Agent": (
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/131.0.0.0 Safari/537.36"
+                )
+}
 
 # Enable or disable spider middlewares
 # See https://docs.scrapy.org/en/latest/topics/spider-middleware.html
@@ -46,16 +51,16 @@ DOWNLOAD_DELAY = 1
 
 # Enable or disable downloader middlewares
 # See https://docs.scrapy.org/en/latest/topics/downloader-middleware.html
-DOWNLOADER_MIDDLEWARES = {
-#    "motos_scraper.middlewares.MotosScraperDownloaderMiddleware": 543,
-#    "motos_scraper.middlewares.CustomProxyMiddleware": 350,
-   "rotating_proxies.middlewares.RotatingProxyMiddleware": 350,
-}
+# DOWNLOADER_MIDDLEWARES = {
+# #    "motos_scraper.middlewares.MotosScraperDownloaderMiddleware": 543,
+# #    "motos_scraper.middlewares.CustomProxyMiddleware": 350,
+#    "rotating_proxies.middlewares.RotatingProxyMiddleware": 350,
+# }
 
 def load_proxies(path):
     proxies = []
-    with open(path, 'r') as f:
-        for line in f:
+    with open(path, 'r') as file:
+        for line in file:
             line = line.strip()
             if line:
                 parts = line.split(':')
@@ -127,10 +132,6 @@ FEED_EXPORT_ENCODING = "utf-8"
 # CLOSESPIDER_TIMEOUT = 360
 # PLAYWRIGHT_CLOSE_PAGE = True
 # PLAYWRIGHT_CLOSE_CONTEXT = True
-
-
-
-ROBOTSTXT_OBEY = False
 
 
 # Logs

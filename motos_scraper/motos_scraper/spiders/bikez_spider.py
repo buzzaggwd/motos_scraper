@@ -41,18 +41,9 @@ def normalize_brand(brand):
 def similar(a, b):
     return SequenceMatcher(None, a, b).ratio()
 
+
 class BikezSpider(scrapy.Spider):
     name = "bikez_spider"
-
-    custom_settings = {
-        "DEFAULT_REQUEST_HEADERS": {
-            "User-Agent": (
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/131.0.0.0 Safari/537.36"
-            )
-        }
-    }
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -70,7 +61,6 @@ class BikezSpider(scrapy.Spider):
                 nm = normalize(moto.get("model"))
                 idx[nm].append(moto)
             self.brand_index[brand] = idx
-
 
     def start_requests(self):
         for brand, lst in self.by_brand.items():
@@ -226,10 +216,14 @@ class BikezSpider(scrapy.Spider):
                 else:
                     item["origin_country"] = None
             
-
+            # СОХРАНЕНИЕ ТОЛЬКО ПРИ НАЙДЕННОЙ МОЩНОСТИ
             if item.get("engine_power_hp"):
                 self.logger.info(f"[НАШЕЛ bikez] {item['model']} - {item.get('engine_power_hp')}")
                 yield item
 
             else:
                 self.logger.info(f"[НАШЕЛ bikez] {item['model']} - нет мощности")
+
+            # СОХРАНЕНИЕ ДАЖЕ ПРИ ОТСУТСТВИИ МОЩНОСТИ
+            # self.logger.info(f"[НАШЕЛ bikez] {item['model']}")
+            # yield item
