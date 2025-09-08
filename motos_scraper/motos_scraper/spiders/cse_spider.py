@@ -23,7 +23,8 @@ class CseSpider(scrapy.Spider):
         "RETRY_ENABLED": True,
         "RETRY_TIMES": 5,
         "RETRY_HTTP_CODES": [408, 429, 500, 502, 503, 504],
-        "DOWNLOAD_TIMEOUT": 120,
+        "DOWNLOAD_TIMEOUT": 180,
+        "CLOSESPIDER_ERRORCOUNT": 100,
         "DOWNLOAD_DELAY": random.uniform(1, 3),
         "PLAYWRIGHT_DEFAULT_NAVIGATION_TIMEOUT": 0,
         "PLAYWRIGHT_ABORT_REQUEST": lambda req: req.resource_type in ["image", "media", "font", "stylesheet"],
@@ -42,7 +43,6 @@ class CseSpider(scrapy.Spider):
                 "ignore_https_errors": True,
             },
         },
-        "PLAYWRIGHT_DEFAULT_NAVIGATION_TIMEOUT": 0,
         "PLAYWRIGHT_CLOSE_PAGE": True,
         "PLAYWRIGHT_CLOSE_CONTEXT": True,
         "DOWNLOADER_MIDDLEWARES": {
@@ -66,14 +66,16 @@ class CseSpider(scrapy.Spider):
                 meta={
                     "playwright": True,
                     "playwright_include_page": True,
+                    "playwright_page_goto_timeout": 20000,
                     "playwright_page_methods": [
-                        PageMethod("wait_for_selector", "div.gsc-expansionArea", state="attached", timeout=0),
+                        PageMethod("wait_for_selector", "div.gsc-expansionArea", timeout=180000),
                     ],
                     "playwright_page_goto_kwargs": {"wait_until": "domcontentloaded",},
                     "moto": moto,
                 },
                 callback=self.parse_cse,
                 dont_filter=True,
+                errback=self.errback_handle,
             )
 
     async def parse_cse(self, response):
@@ -90,6 +92,7 @@ class CseSpider(scrapy.Spider):
                     callback=self.parse_moto_page,
                     meta={"moto": moto, "link": link},
                     dont_filter=False,
+                    errback=self.errback_handle,
                 )
             else:
                 self.logger.info(f"[ПРОПУСК cse] нет ссылки {moto["model"]}")
@@ -97,7 +100,8 @@ class CseSpider(scrapy.Spider):
             self.logger.info(f"[ПРОПУСК cse] нет ссылки {moto["model"]}")
 
         finally:
-            await page.close()
+            if not page.is_closed():
+                await page.close()
 
     def parse_moto_page(self, response):
         moto = response.meta["moto"]
@@ -209,3 +213,8 @@ class CseSpider(scrapy.Spider):
             self.zero_items_in_row += 1
             if self.zero_items_in_row >= 10:
                 raise CloseSpider(f"Превышен лимит пустых страниц: {self.zero_items_in_row}")
+
+
+    def errback_handler(self, failure):
+        self.logger.error(f'Ошибка парсинга cse: {failure.value}')
+        self.crawler.stats.inc_value('failed_request_count')

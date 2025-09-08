@@ -16,7 +16,7 @@ class MotosScraperPipelineNew:
         # self.connection = sqlite3.connect(db_name)
 
         # ВСЕ ПАУКИ ПИШУТ В ОДНУ БАЗУ
-        self.connection = sqlite3.connect("motos_cse2.db")
+        self.connection = sqlite3.connect("motos_fastestlaps4.db")
 
         self.cursor = self.connection.cursor()
         self.cursor.execute("""
@@ -24,7 +24,7 @@ class MotosScraperPipelineNew:
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 api_id INTEGER,
                 source VARCHAR(46),
-                source_url VARCHAR(46),
+                source_url VARCHAR(256),
                 brand VARCHAR(46),
                 model VARCHAR(46),
                 year VARCHAR(4),

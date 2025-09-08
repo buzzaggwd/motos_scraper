@@ -41,7 +41,8 @@ class FastestlapsSpider(scrapy.Spider):
         "RETRY_TIMES": 5,
         'DOWNLOADER_MIDDLEWARES': {
             'rotating_proxies.middlewares.RotatingProxyMiddleware': 350,
-        }
+        },
+        "CLOSESPIDER_ERRORCOUNT": 100,
     }
 
     def __init__(self, *args, **kwargs):
@@ -66,6 +67,7 @@ class FastestlapsSpider(scrapy.Spider):
                 url=url,
                 callback=self.parse_models_urls,
                 headers={"User-Agent": random.choice(USER_AGENTS)},
+                errback=self.errback_handle,
             )
 
     def parse_models_urls(self, response):
@@ -83,11 +85,10 @@ class FastestlapsSpider(scrapy.Spider):
                     yield scrapy.Request(
                         url=response.urljoin(href),
                         callback=self.check_if_motocycle,
-                        meta={
-                            "item": item,
-                        },
+                        meta={"item": item},
                         dont_filter=True,
                         headers={"User-Agent": random.choice(USER_AGENTS)},
+                        errback=self.errback_handle,
                     )
 
     def check_if_motocycle(self, response):
@@ -108,10 +109,9 @@ class FastestlapsSpider(scrapy.Spider):
             yield scrapy.Request(
                 url=item["source_url"],
                 callback=self.parse_models_info,
-                meta={ 
-                    "item": item,
-                },
+                meta={"item": item},
                 headers={"User-Agent": random.choice(USER_AGENTS)},
+                errback=self.errback_handle,
             )
         else:
             self.logger.info(f"[ПРОПУСК fastestlaps] {item['model']} не является мотоциклом")
@@ -232,3 +232,8 @@ class FastestlapsSpider(scrapy.Spider):
             self.zero_items_in_row += 1
             if self.zero_items_in_row >= 10:
                 raise CloseSpider(f"Превышен лимит пустых страниц: {self.zero_items_in_row}")
+
+
+    def errback_handler(self, failure):
+        self.logger.error(f'Ошибка парсинга fastestlaps: {failure.value}')
+        self.crawler.stats.inc_value('failed_request_count')
