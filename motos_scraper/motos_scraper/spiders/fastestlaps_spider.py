@@ -6,6 +6,7 @@ import logging
 from motos_scraper.items import MotosScraperItem
 from difflib import SequenceMatcher
 import random
+from scrapy.exceptions import CloseSpider
 
 with open("../motos.json", "r", encoding="utf-8") as f:
     motos = json.load(f)
@@ -54,22 +55,26 @@ class FastestlapsSpider(scrapy.Spider):
         super().__init__(*args, **kwargs)
         self.motos = motos
         self.moto_map = {normalize(moto.get("model")): moto for moto in self.motos}
+        self.zero_items_in_row = 0
 
     def parse(self, response):
         # self.logger.info(f"[ПАРСИНГ 1 fastestlaps] {response.url}")
         soup = BeautifulSoup(response.text, 'html.parser')
+        brand_links = []
         for ul in soup.select("ul.fl-indexlist"):
             for li in ul.find_all("li"):
                 a_tag = li.find("a")
                 brand_text = a_tag.text.strip()
                 if any(brand in brand_text for brand in ["Honda", "Kawasaki", "Harley-Davidson", "BMW", "Yamaha", "KTM", "Suzuki", "Triumph", "Ducati", "Buell"]):
                     href = a_tag.get("href")
-                    
-                    yield scrapy.Request(
-                        url=response.urljoin(href),
-                        callback=self.parse_models_urls,
-                        headers={"User-Agent": random.choice(USER_AGENTS)},
-                    )
+                    brand_links.append(response.urljoin(href))
+
+        for url in brand_links:
+            yield scrapy.Request(
+                url=url,
+                callback=self.parse_models_urls,
+                headers={"User-Agent": random.choice(USER_AGENTS)},
+            )
 
     def parse_models_urls(self, response):
         # self.logger.info(f"[ПАРСИНГ 2 fastestlaps] {response.url}")
@@ -217,10 +222,21 @@ class FastestlapsSpider(scrapy.Spider):
                 elif brand_lower in ["ducati"]:
                     item["origin_country"] = "Italy"
 
+            self.zero_items_in_row = 0
+
             # if item.get("engine_power_hp"):
             #     self.logger.info(f"[НАШЕЛ fastestlaps] {moto.get('model')} - {moto.get('engine_power_hp')}")
             #     yield item
             # else:
             #     self.logger.info(f"[ПРОПУСК fastestlaps] {moto.get('model')}")
+            #     self.zero_items_in_row += 1
+            #     if self.zero_items_in_row >= 10:
+            #         raise CloseSpider(f"Превышен лимит пустых страниц: {self.zero_items_in_row}")
+
             self.logger.info(f"[НАШЕЛ fastestlaps] {item['model']}")
             yield item
+        else:
+            self.logger.info(f"[ПРОПУСК fastestlaps] {item['model']} не найден в базе")
+            self.zero_items_in_row += 1
+            if self.zero_items_in_row >= 10:
+                raise CloseSpider(f"Превышен лимит пустых страниц: {self.zero_items_in_row}")

@@ -6,3 +6,4 @@ scrapy.log
 *.sqlite
 proxies.txt
 check_proxy.py
+bright_test.py
