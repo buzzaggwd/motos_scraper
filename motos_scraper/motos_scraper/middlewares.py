@@ -116,12 +116,17 @@ class PlaywrightProxyMiddleware:
     def process_request(self, request, spider):
         if request.meta.get('playwright') and self.proxy_list:
             proxy = random.choice(self.proxy_list)
-            parsed = urlparse(proxy)
-            
-            request.meta['playwright_context_kwargs'] = {
-                'proxy': {
-                    'server': f"{parsed.scheme}://{parsed.hostname}:{parsed.port}",
-                    'username': parsed.username,
-                    'password': parsed.password
+
+            # ip:port:user:password
+            parts = proxy.split(":")
+            if len(parts) == 4:
+                host, port, user, password = parts
+                server = f"http://{host}:{port}"
+
+                request.meta['playwright_context_kwargs'] = {
+                    'proxy': {
+                        'server': server,
+                        'username': user,
+                        'password': password
+                    }
                 }
-            }

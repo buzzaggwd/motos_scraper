@@ -23,7 +23,7 @@ class CseSpider(scrapy.Spider):
         "DOWNLOAD_TIMEOUT": 180,
         "CLOSESPIDER_ERRORCOUNT": 25,
         "DOWNLOAD_DELAY": random.uniform(1, 3),
-        "PLAYWRIGHT_DEFAULT_NAVIGATION_TIMEOUT": 0,
+        "PLAYWRIGHT_DEFAULT_NAVIGATION_TIMEOUT": 60000,
         "PLAYWRIGHT_ABORT_REQUEST": lambda req: req.resource_type in ["image", "media", "font", "stylesheet"],
         "USER_AGENT_ROTATION": True,
         "DOWNLOAD_HANDLERS": {
@@ -65,7 +65,7 @@ class CseSpider(scrapy.Spider):
                     "playwright_include_page": True,
                     "playwright_page_goto_timeout": 20000,
                     "playwright_page_methods": [
-                        PageMethod("wait_for_selector", "div.gsc-expansionArea", timeout=240000),
+                        PageMethod("wait_for_selector", "div.gsc-expansionArea", state="attached", timeout=120000),
                     ],
                     "playwright_page_goto_kwargs": {"wait_until": "domcontentloaded",},
                     "moto": moto,
@@ -194,14 +194,14 @@ class CseSpider(scrapy.Spider):
 
             # СОХРАНЕНИЕ ТОЛЬКО ПРИ НАЙДЕННОЙ МОЩНОСТИ
             if item.get("engine_power_hp"):
-                self.logger.info(f"[НАШЕЛ cse] {moto.get('model')} - {moto.get('engine_power_hp')}")
+                self.logger.info(f"[НАШЕЛ cse] {item.get('model')} - {item.get('engine_power_hp')}")
                 yield item
             else:
-                self.logger.info(f"[ПРОПУСК cse] {moto.get('model')}")
+                self.logger.info(f"[ПРОПУСК cse] {item.get('model')}")
 
 
             # СОХРАНЕНИЕ ДАЖЕ ПРИ ОТСУТСТВИИ МОЩНОСТИ
-            # self.logger.info(f"[НАШЕЛ cse] {item['model']}")
+            # self.logger.info(f"[НАШЕЛ cse] {item.get('model')}")
             # yield item
 
         else:
