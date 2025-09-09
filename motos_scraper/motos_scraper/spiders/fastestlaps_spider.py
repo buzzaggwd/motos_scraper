@@ -2,7 +2,6 @@ import scrapy
 from bs4 import BeautifulSoup
 import json
 import re
-import logging
 from motos_scraper.items import MotosScraperItem
 from difflib import SequenceMatcher
 import random
@@ -10,8 +9,6 @@ from scrapy.exceptions import CloseSpider
 
 with open("../motos.json", "r", encoding="utf-8") as f:
     motos = json.load(f)
-
-logger = logging.getLogger(__name__)
 
 def normalize(s):
     if not s:
@@ -48,8 +45,10 @@ class FastestlapsSpider(scrapy.Spider):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.motos = motos
-        self.moto_map = {normalize(moto.get("model")): moto for moto in self.motos}
         self.zero_items_in_row = 0
+        self.moto_map = {}
+        for moto in self.motos:
+            self.moto_map[normalize(moto.get("model"))] = moto
 
     def parse(self, response):
         soup = BeautifulSoup(response.text, 'html.parser')
@@ -67,7 +66,7 @@ class FastestlapsSpider(scrapy.Spider):
                 url=url,
                 callback=self.parse_models_urls,
                 headers={"User-Agent": random.choice(USER_AGENTS)},
-                errback=self.errback_handle,
+                errback=self.errback_handler,
             )
 
     def parse_models_urls(self, response):
@@ -88,7 +87,7 @@ class FastestlapsSpider(scrapy.Spider):
                         meta={"item": item},
                         dont_filter=True,
                         headers={"User-Agent": random.choice(USER_AGENTS)},
-                        errback=self.errback_handle,
+                        errback=self.errback_handler,
                     )
 
     def check_if_motocycle(self, response):
@@ -111,7 +110,7 @@ class FastestlapsSpider(scrapy.Spider):
                 callback=self.parse_models_info,
                 meta={"item": item},
                 headers={"User-Agent": random.choice(USER_AGENTS)},
-                errback=self.errback_handle,
+                errback=self.errback_handler,
             )
         else:
             self.logger.info(f"[ПРОПУСК fastestlaps] {item['model']} не является мотоциклом")
@@ -128,9 +127,9 @@ class FastestlapsSpider(scrapy.Spider):
         moto = None
 
         for key in self.moto_map.keys():
-            sc = similar(normalized_name, key)
-            if sc > max_similarity:
-                max_similarity = sc
+            score = similar(normalized_name, key)
+            if score > max_similarity:
+                max_similarity = score
                 match = key
         if match and max_similarity >= 0.90:
             moto = self.moto_map[match]

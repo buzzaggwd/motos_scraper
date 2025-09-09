@@ -1,7 +1,6 @@
 import scrapy
 import json
 import re
-import logging
 import random
 from scrapy_playwright.page import PageMethod
 from motos_scraper.items import MotosScraperItem
@@ -9,8 +8,6 @@ from scrapy.exceptions import CloseSpider
 
 with open("../motos.json", "r", encoding="utf-8") as f:
     motos = json.load(f)
-
-logger = logging.getLogger(__name__)
 
 class CseSpider(scrapy.Spider):
     name = "cse_spider"
@@ -24,7 +21,7 @@ class CseSpider(scrapy.Spider):
         "RETRY_TIMES": 5,
         "RETRY_HTTP_CODES": [408, 429, 500, 502, 503, 504],
         "DOWNLOAD_TIMEOUT": 180,
-        "CLOSESPIDER_ERRORCOUNT": 100,
+        "CLOSESPIDER_ERRORCOUNT": 25,
         "DOWNLOAD_DELAY": random.uniform(1, 3),
         "PLAYWRIGHT_DEFAULT_NAVIGATION_TIMEOUT": 0,
         "PLAYWRIGHT_ABORT_REQUEST": lambda req: req.resource_type in ["image", "media", "font", "stylesheet"],
@@ -68,14 +65,14 @@ class CseSpider(scrapy.Spider):
                     "playwright_include_page": True,
                     "playwright_page_goto_timeout": 20000,
                     "playwright_page_methods": [
-                        PageMethod("wait_for_selector", "div.gsc-expansionArea", timeout=180000),
+                        PageMethod("wait_for_selector", "div.gsc-expansionArea", timeout=240000),
                     ],
                     "playwright_page_goto_kwargs": {"wait_until": "domcontentloaded",},
                     "moto": moto,
                 },
                 callback=self.parse_cse,
                 dont_filter=True,
-                errback=self.errback_handle,
+                errback=self.errback_handler,
             )
 
     async def parse_cse(self, response):
@@ -84,7 +81,6 @@ class CseSpider(scrapy.Spider):
 
         try:
             link = response.css("div.gsc-expansionArea a.gs-title::attr(href)").get()
-
             if link:
                 self.logger.info(f"[НАШЕЛ cse] ссылка для {moto["model"]}")
                 yield scrapy.Request(
@@ -92,7 +88,7 @@ class CseSpider(scrapy.Spider):
                     callback=self.parse_moto_page,
                     meta={"moto": moto, "link": link},
                     dont_filter=False,
-                    errback=self.errback_handle,
+                    errback=self.errback_handler,
                 )
             else:
                 self.logger.info(f"[ПРОПУСК cse] нет ссылки {moto["model"]}")
@@ -123,8 +119,8 @@ class CseSpider(scrapy.Spider):
                 value = ' '.join(tr.xpath("td[2]//text()").getall()).strip()
 
                 if header and value:
-                    header_clean = " ".join(header.lower().split())
-                    value_clean = " ".join(value.split())
+                    header_clean = ' '.join(header.lower().split())
+                    value_clean = ' '.join(value.split())
 
                     if "engine" in header_clean:
                         item["engine_type"] = value_clean
@@ -197,16 +193,16 @@ class CseSpider(scrapy.Spider):
             self.zero_items_in_row = 0
 
             # СОХРАНЕНИЕ ТОЛЬКО ПРИ НАЙДЕННОЙ МОЩНОСТИ
-            # if item.get("engine_power_hp"):
-            #     self.logger.info(f"[НАШЕЛ cse] {moto.get('model')} - {moto.get('engine_power_hp')}")
-            #     yield item
-            # else:
-            #     self.logger.info(f"[ПРОПУСК cse] {moto.get('model')}")
+            if item.get("engine_power_hp"):
+                self.logger.info(f"[НАШЕЛ cse] {moto.get('model')} - {moto.get('engine_power_hp')}")
+                yield item
+            else:
+                self.logger.info(f"[ПРОПУСК cse] {moto.get('model')}")
 
 
             # СОХРАНЕНИЕ ДАЖЕ ПРИ ОТСУТСТВИИ МОЩНОСТИ
-            self.logger.info(f"[НАШЕЛ cse] {item['model']}")
-            yield item
+            # self.logger.info(f"[НАШЕЛ cse] {item['model']}")
+            # yield item
 
         else:
             self.logger.info(f"[ПРОПУСК cse] {moto['model']} не найден")
@@ -215,6 +211,14 @@ class CseSpider(scrapy.Spider):
                 raise CloseSpider(f"Превышен лимит пустых страниц: {self.zero_items_in_row}")
 
 
-    def errback_handler(self, failure):
+    async def errback_handler(self, failure):
         self.logger.error(f'Ошибка парсинга cse: {failure.value}')
         self.crawler.stats.inc_value('failed_request_count')
+        fail_request = failure.request
+        page = fail_request.meta.get("playwright_page")
+        if page:
+            try:
+                if not page.is_closed():
+                    await page.close()
+            except Exception:
+                pass

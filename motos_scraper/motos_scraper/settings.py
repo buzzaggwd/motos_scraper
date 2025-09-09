@@ -137,4 +137,4 @@ FEED_EXPORT_ENCODING = "utf-8"
 # Logs
 LOG_ENABLED = True
 LOG_LEVEL = "INFO"
-# LOG_FILE = 'scrapy.log'
+LOG_FILE = 'scrapy.log'

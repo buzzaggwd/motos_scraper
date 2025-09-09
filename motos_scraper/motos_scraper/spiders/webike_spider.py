@@ -2,14 +2,11 @@ import scrapy
 from bs4 import BeautifulSoup
 import json
 import re
-import logging
 from motos_scraper.items import MotosScraperItem
 from difflib import SequenceMatcher
 
 with open("../motos.json", "r", encoding="utf-8") as f:
     motos = json.load(f)
-
-logger = logging.getLogger(__name__)
 
 def normalize(s):
     if not s:
@@ -63,9 +60,9 @@ class WebikeSpider(scrapy.Spider):
             max_similarity = 0.0
 
             for moto in self.normalized_motos:
-                sc = similar(normalized_name, moto)
-                if sc > max_similarity:
-                    max_similarity = sc
+                score = similar(normalized_name, moto)
+                if score > max_similarity:
+                    max_similarity = score
                     match = moto
             if max_similarity>=0.90:
                 normalized_name = match

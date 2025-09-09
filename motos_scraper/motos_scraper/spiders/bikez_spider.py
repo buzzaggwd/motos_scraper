@@ -2,15 +2,12 @@ import scrapy
 from bs4 import BeautifulSoup
 import json
 import re
-import logging
 from motos_scraper.items import MotosScraperItem
 from collections import defaultdict
 from difflib import SequenceMatcher
 
-with open("../motos.json", "r", encoding="utf-8") as f:
-    motos = json.load(f)
-
-logger = logging.getLogger(__name__)
+with open("../motos.json", "r", encoding="utf-8") as file:
+    motos = json.load(file)
 
 BRANDS = [
     "honda", "kawasaki", "harley", "harley-davidson", "harleydavidson",
@@ -24,8 +21,8 @@ def normalize(s):
     s = s.lower().strip()
     s = re.sub(r'[()\[\]{}]', '', s)
     s = re.sub(r'[^a-z0-9 ]', ' ', s)
-    for b in BRANDS:
-        s = re.sub(rf"\b{re.escape(b)}\b", " ", s)
+    for brand in BRANDS:
+        s = re.sub(rf"\b{re.escape(brand)}\b", " ", s)
     s = re.sub(r'\s+', ' ', s).strip()
     return s
 
@@ -34,8 +31,8 @@ def normalize_brand(brand):
     brand = re.sub(r'\s+', ' ', brand)
     brand = re.sub(r'[()\[\]{}]', '', brand)
     brand = re.sub(r'[^a-z0-9]', '', brand)
-    brand = brand.replace("harleydavidson","harley-davidson")
-    brand = brand.replace("mvagusta","mv agusta")
+    brand = brand.replace("harley-davidson","harleydavidson")
+    brand = brand.replace("mv agusta","mvagusta")
     return brand
 
 def similar(a, b):
@@ -60,7 +57,7 @@ class BikezSpider(scrapy.Spider):
             for moto in lst:
                 nm = normalize(moto.get("model"))
                 idx[nm].append(moto)
-            self.brand_index[brand] = idx
+            self.brand_index[brand] = idx  # brand_index[brand][normalized_model_name] = [moto1, moto2, ...]
 
     def start_requests(self):
         for brand, lst in self.by_brand.items():
