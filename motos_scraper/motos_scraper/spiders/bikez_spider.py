@@ -5,6 +5,7 @@ import re
 from motos_scraper.items import MotosScraperItem
 from collections import defaultdict
 from difflib import SequenceMatcher
+import sqlite3
 
 with open("../motos.json", "r", encoding="utf-8") as file:
     motos = json.load(file)
@@ -38,6 +39,17 @@ def normalize_brand(brand):
 def similar(a, b):
     return SequenceMatcher(None, a, b).ratio()
 
+def get_existing_api_ids():
+    try:
+        conn = sqlite3.connect("../motos.db")
+        cur = conn.cursor()
+        cur.execute("SELECT api_id FROM motos")
+        rows = cur.fetchall()
+        cur.close()
+        conn.close()
+        return set(r[0] for r in rows)
+    except sqlite3.Error as e:
+        return set()
 
 class BikezSpider(scrapy.Spider):
     name = "bikez_spider"
@@ -46,6 +58,7 @@ class BikezSpider(scrapy.Spider):
         super().__init__(*args, **kwargs)
         self.motos = motos
         self.by_brand = defaultdict(list)    # defaultdict(<type 'list'>, {})
+        self.existing_api_ids = get_existing_api_ids()
         self.brand_index = {}
 
         for moto in self.motos:
@@ -55,8 +68,9 @@ class BikezSpider(scrapy.Spider):
         for brand, lst in self.by_brand.items():
             idx = defaultdict(list)
             for moto in lst:
-                nm = normalize(moto.get("model"))
-                idx[nm].append(moto)
+                if moto["api_id"] not in self.existing_api_ids:
+                    nm = normalize(moto.get("model"))
+                    idx[nm].append(moto)
             self.brand_index[brand] = idx  # brand_index[brand][normalized_model_name] = [moto1, moto2, ...]
 
     def start_requests(self):

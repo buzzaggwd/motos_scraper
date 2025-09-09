@@ -4,6 +4,7 @@ import json
 import re
 from motos_scraper.items import MotosScraperItem
 from difflib import SequenceMatcher
+import sqlite3
 
 with open("../motos.json", "r", encoding="utf-8") as f:
     motos = json.load(f)
@@ -19,6 +20,18 @@ def normalize(s):
 
 def similar(a, b):
     return SequenceMatcher(None, a, b).ratio()
+
+def get_existing_api_ids():
+    try:
+        conn = sqlite3.connect("../motos.db")
+        cur = conn.cursor()
+        cur.execute("SELECT api_id FROM motos")
+        rows = cur.fetchall()
+        cur.close()
+        conn.close()
+        return set(r[0] for r in rows)
+    except sqlite3.Error as e:
+        return set()
 
 class WebikeSpider(scrapy.Spider):
     name = "webike_spider"
@@ -38,10 +51,12 @@ class WebikeSpider(scrapy.Spider):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.motos = motos
+        self.existing_api_ids = get_existing_api_ids()
         self.normalized_motos = {}
         for moto in motos:
-            norm = normalize(moto["model"])
-            self.normalized_motos.setdefault(norm, []).append(moto)
+            if moto["api_id"] not in self.existing_api_ids:
+                norm = normalize(moto["model"])
+                self.normalized_motos.setdefault(norm, []).append(moto)
 
     def parse(self, response):
         soup = BeautifulSoup(response.text, "html.parser")

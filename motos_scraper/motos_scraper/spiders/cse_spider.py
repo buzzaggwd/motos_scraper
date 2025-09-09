@@ -5,9 +5,48 @@ import random
 from scrapy_playwright.page import PageMethod
 from motos_scraper.items import MotosScraperItem
 from scrapy.exceptions import CloseSpider
+import requests
+import sqlite3
 
 with open("../motos.json", "r", encoding="utf-8") as f:
     motos = json.load(f)
+
+USER_AGENTS = [
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 13_5) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15",
+    "Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:118.0) Gecko/20100101 Firefox/118.0"
+]
+
+def check_proxy(proxy_str, timeout=5):
+    try:
+        parts = proxy_str.split(":")
+        if len(parts) == 4:
+            ip, port, login, password = parts
+            proxy_url = f"http://{login}:{password}@{ip}:{port}"
+            resp = requests.get("https://httpbin.org/ip", 
+                                proxies={"http": proxy_url, "https": proxy_url}, 
+                                timeout=timeout)
+            print(f"Proxy {proxy_str} works: {resp.status_code}")
+            return resp.status_code == 200
+    except Exception:
+        return False
+    return False
+
+with open("../proxies.txt", "r") as f:
+    raw_proxies = [line.strip() for line in f if line.strip()]
+    PROXIES = [p for p in raw_proxies if check_proxy(p)]
+
+def get_existing_api_ids():
+    try:
+        conn = sqlite3.connect("../motos.db")
+        cur = conn.cursor()
+        cur.execute("SELECT api_id FROM motos")
+        rows = cur.fetchall()
+        cur.close()
+        conn.close()
+        return set(r[0] for r in rows)
+    except sqlite3.Error as e:
+        return set()
 
 class CseSpider(scrapy.Spider):
     name = "cse_spider"
@@ -42,9 +81,6 @@ class CseSpider(scrapy.Spider):
         },
         "PLAYWRIGHT_CLOSE_PAGE": True,
         "PLAYWRIGHT_CLOSE_CONTEXT": True,
-        "DOWNLOADER_MIDDLEWARES": {
-            "motos_scraper.middlewares.PlaywrightProxyMiddleware": 543,
-        },
     }
 
     def __init__(self, *args, **kwargs):
@@ -52,52 +88,84 @@ class CseSpider(scrapy.Spider):
         self.motos = motos
         self.results = []
         self.zero_items_in_row = 0
+        self.existing_api_ids = get_existing_api_ids()
+
+    def parse_proxy(self, proxy_str):
+        parts = proxy_str.split(":")
+        if len(parts) == 4:
+            ip, port, login, password = parts
+            return {
+                "server": f"http://{ip}:{port}",
+                "username": login,
+                "password": password,
+            }
+        return None
 
     def start_requests(self):
         for moto in self.motos:
+            if moto["api_id"] in self.existing_api_ids:
+                continue
+
             model = moto["model"].replace(" ", "%20")
             url = f"https://cse.google.co.za/cse?cx=partner-pub-6706711710399117:3179068794&ie=UTF-8&sa=Search&q={model}"
             
+            proxy = random.choice(PROXIES) if PROXIES else None
+            ua = random.choice(USER_AGENTS)
+
+            playwright_meta = {
+                "playwright": True,
+                "playwright_include_page": True,
+                "playwright_page_goto_timeout": 20000,
+                "playwright_page_methods": [
+                    PageMethod("set_extra_http_headers", {
+                        "User-Agent": ua,
+                        "Accept-Language": "en-US,en;q=0.9"
+                    }),
+                    PageMethod("evaluate", """() => {
+                        Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
+                    }"""),
+                    PageMethod("wait_for_selector", "div.gsc-expansionArea", state="attached", timeout=120000),
+                    PageMethod("wait_for_timeout", random.randint(2000, 5000)),
+                ],
+                "playwright_page_goto_kwargs": {"wait_until": "domcontentloaded"},
+                "moto": moto,
+            }
+
+            if proxy:
+                proxy_conf = self.parse_proxy(proxy)
+                if proxy_conf:
+                    playwright_meta["playwright_context"] = f"context_{proxy_conf['server']}"
+                    playwright_meta["playwright_context_kwargs"] = {
+                        "proxy": proxy_conf
+                    }
+            
             yield scrapy.Request(
                 url=url,
-                meta={
-                    "playwright": True,
-                    "playwright_include_page": True,
-                    "playwright_page_goto_timeout": 20000,
-                    "playwright_page_methods": [
-                        PageMethod("wait_for_selector", "div.gsc-expansionArea", state="attached", timeout=120000),
-                    ],
-                    "playwright_page_goto_kwargs": {"wait_until": "domcontentloaded",},
-                    "moto": moto,
-                },
+                meta=playwright_meta,
                 callback=self.parse_cse,
                 dont_filter=True,
                 errback=self.errback_handler,
             )
 
-    async def parse_cse(self, response):
+    def parse_cse(self, response):
         page = response.meta["playwright_page"]
         moto = response.meta["moto"]
 
-        try:
-            link = response.css("div.gsc-expansionArea a.gs-title::attr(href)").get()
-            if link:
-                self.logger.info(f"[НАШЕЛ cse] ссылка для {moto["model"]}")
-                yield scrapy.Request(
-                    link,
-                    callback=self.parse_moto_page,
-                    meta={"moto": moto, "link": link},
-                    dont_filter=False,
-                    errback=self.errback_handler,
-                )
-            else:
-                self.logger.info(f"[ПРОПУСК cse] нет ссылки {moto["model"]}")
-        except Exception as e:
+        link = response.css("div.gsc-expansionArea a.gs-title::attr(href)").get()
+        if link:
+            self.logger.info(f"[НАШЕЛ cse] ссылка для {moto["model"]}")
+            yield scrapy.Request(
+                url=link,
+                callback=self.parse_moto_page,
+                meta={"moto": moto, "link": link},
+                dont_filter=False,
+                errback=self.errback_handler,
+            )
+        else:
             self.logger.info(f"[ПРОПУСК cse] нет ссылки {moto["model"]}")
 
-        finally:
-            if not page.is_closed():
-                await page.close()
+        if page and not page.is_closed():
+            page.close()
 
     def parse_moto_page(self, response):
         moto = response.meta["moto"]
