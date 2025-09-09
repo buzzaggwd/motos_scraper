@@ -16,7 +16,7 @@ class MotosScraperPipelineNew:
         # self.connection = sqlite3.connect(db_name)
 
         # ВСЕ ПАУКИ ПИШУТ В ОДНУ БАЗУ
-        self.connection = sqlite3.connect("motos_fastestlaps6.db")
+        self.connection = sqlite3.connect("motos_all_spiders_plus_fastestlaps.db")
 
         self.cursor = self.connection.cursor()
         self.cursor.execute("""

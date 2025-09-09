@@ -33,7 +33,7 @@ USER_AGENTS = [
 
 def get_existing_api_ids():
     try:
-        conn = sqlite3.connect("../motos_fastestlaps6.db")
+        conn = sqlite3.connect("../motos_all_spiders_plus_fastestlaps.db")
         cur = conn.cursor()
         cur.execute("SELECT api_id FROM motos")
         rows = cur.fetchall()
@@ -59,7 +59,6 @@ class FastestlapsSpider(scrapy.Spider):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.motos = motos
-        self.zero_items_in_row = 0
         self.existing_api_ids = get_existing_api_ids()
         self.moto_map = defaultdict(list)
         for moto in self.motos:
@@ -106,6 +105,10 @@ class FastestlapsSpider(scrapy.Spider):
 
                 if match and max_similarity >= 0.90:
                     for moto in self.moto_map[match]:
+
+                        if moto["api_id"] in self.existing_api_ids:
+                            continue 
+
                         href = a_tag.get("href")
                         item = MotosScraperItem()
                         item["model"] = moto["model"]
@@ -117,37 +120,12 @@ class FastestlapsSpider(scrapy.Spider):
 
                         yield scrapy.Request(
                             url=response.urljoin(href),
-                            callback=self.check_if_motocycle,
+                            callback=self.parse_models_info,
                             meta={"item": item},
                             dont_filter=True,
                             headers={"User-Agent": random.choice(USER_AGENTS)},
                             errback=self.errback_handler,
                         )
-
-    def check_if_motocycle(self, response):
-        soup = BeautifulSoup(response.text, 'html.parser')
-        item = response.meta["item"]
-        table = soup.find("table", class_="fl-datasheet")
-        is_moto = False
-
-        if table:
-            for tr in table.find_all("tr"):
-                tds = tr.find_all("td")
-                if len(tds) >= 2 and "Motorcycle type" in tds[0].get_text(strip=True):
-                    is_moto = True
-                    break
-
-        if is_moto:
-            self.logger.info(f"[ПОЛУЧЕН fastestlaps] {item['model']}")
-            yield scrapy.Request(
-                url=item["source_url"],
-                callback=self.parse_models_info,
-                meta={"item": item},
-                headers={"User-Agent": random.choice(USER_AGENTS)},
-                errback=self.errback_handler,
-            )
-        else:
-            self.logger.info(f"[ПРОПУСК fastestlaps] {item['model']} не является мотоциклом")
 
     def parse_models_info(self, response):
         soup = BeautifulSoup(response.text, 'html.parser')
@@ -225,7 +203,6 @@ class FastestlapsSpider(scrapy.Spider):
             elif brand_lower in ["ducati"]:
                 item["origin_country"] = "Italy"
 
-        self.zero_items_in_row = 0
 
         # СОХРАНЕНИЕ ТОЛЬКО ПРИ НАЙДЕННОЙ МОЩНОСТИ
         if item.get("engine_power_hp"):

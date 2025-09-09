@@ -1,3 +1,11 @@
+import sys
+import os
+import asyncio
+
+if sys.platform == 'win32':
+    os.environ['TWISTED_REACTOR'] = 'twisted.internet.asyncioreactor.AsyncioSelectorReactor'
+    asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
+
 from scrapy.crawler import CrawlerProcess
 from scrapy.utils.project import get_project_settings
 
