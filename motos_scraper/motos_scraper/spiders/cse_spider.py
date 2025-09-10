@@ -7,6 +7,8 @@ from motos_scraper.items import MotosScraperItem
 from scrapy.exceptions import CloseSpider
 import requests
 import sqlite3
+from loguru import logger
+from datetime import datetime
 
 with open("../motos.json", "r", encoding="utf-8") as f:
     motos = json.load(f)
@@ -26,7 +28,7 @@ def check_proxy(proxy_str, timeout=5):
             resp = requests.get("https://httpbin.org/ip", 
                                 proxies={"http": proxy_url, "https": proxy_url}, 
                                 timeout=timeout)
-            print(f"Proxy {proxy_str} works: {resp.status_code}")
+            # print(f"Proxy {proxy_str} works: {resp.status_code}")
             return resp.status_code == 200
     except Exception:
         return False
@@ -34,6 +36,7 @@ def check_proxy(proxy_str, timeout=5):
 
 with open("../proxies.txt", "r") as f:
     raw_proxies = [line.strip() for line in f if line.strip()]
+    logger.info(f"Проверяем прокси, пожалуйста подождите! Парсинг скоро начнется.")
     PROXIES = [p for p in raw_proxies if check_proxy(p)]
 
 def get_existing_api_ids():
@@ -89,6 +92,15 @@ class CseSpider(scrapy.Spider):
         self.results = []
         self.zero_items_in_row = 0
         self.existing_api_ids = get_existing_api_ids()
+        self.loguru_logger = logger.bind(spider="cse")
+
+        self.stats = {
+            'start_time': datetime.now(),
+            'models_processed': 0,
+            'items_found': 0,
+            'items_with_power': 0,
+            'unique_items': set()
+        }
 
     def parse_proxy(self, proxy_str):
         parts = proxy_str.split(":")
@@ -102,6 +114,7 @@ class CseSpider(scrapy.Spider):
         return None
 
     def start_requests(self):
+        self.loguru_logger.info(f"Cse Spider запущен")
         for moto in self.motos:
             if moto["api_id"] in self.existing_api_ids:
                 continue
@@ -168,6 +181,7 @@ class CseSpider(scrapy.Spider):
             page.close()
 
     def parse_moto_page(self, response):
+        self.stats['models_processed'] += 1
         moto = response.meta["moto"]
         trs = response.css("tr")
 
@@ -262,6 +276,8 @@ class CseSpider(scrapy.Spider):
 
             # СОХРАНЕНИЕ ТОЛЬКО ПРИ НАЙДЕННОЙ МОЩНОСТИ
             if item.get("engine_power_hp"):
+                self.stats['items_with_power'] += 1
+                self.stats['unique_items'].add(item['api_id'])
                 self.logger.info(f"[НАШЕЛ cse] {item.get('model')} - {item.get('engine_power_hp')}")
                 yield item
             else:
@@ -269,8 +285,11 @@ class CseSpider(scrapy.Spider):
 
 
             # СОХРАНЕНИЕ ДАЖЕ ПРИ ОТСУТСТВИИ МОЩНОСТИ
+            # self.stats['unique_items'].add(item['api_id'])
             # self.logger.info(f"[НАШЕЛ cse] {item.get('model')}")
             # yield item
+
+            self.stats['items_found'] += 1
 
         else:
             self.logger.info(f"[ПРОПУСК cse] {moto['model']} не найден")
@@ -290,3 +309,21 @@ class CseSpider(scrapy.Spider):
                     await page.close()
             except Exception:
                 pass
+
+    def closed(self, reason):
+        self.loguru_logger.info(f"Парсер завершил работу.")
+        self.log_statistics()
+
+    def log_statistics(self):
+        duration = datetime.now() - self.stats['start_time']
+        minutes = duration.total_seconds() / 60
+        
+        self.loguru_logger.info(
+            f"Статистика парсера:\n"
+            f"- Время работы: {minutes:.2f} минут\n"
+            f"- Обработано моделей: {self.stats['models_processed']}\n"
+            f"- Найдено items: {self.stats['items_found']}\n"
+            f"- Items с мощностью: {self.stats['items_with_power']}\n"
+            f"- Уникальных мотоциклов: {len(self.stats['unique_items'])}\n"
+            f"- Скорость: {self.stats['models_processed'] / minutes:.2f} моделей/мин"
+        )

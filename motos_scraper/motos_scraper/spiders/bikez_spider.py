@@ -6,6 +6,8 @@ from motos_scraper.items import MotosScraperItem
 from collections import defaultdict
 from difflib import SequenceMatcher
 import sqlite3
+from loguru import logger
+from datetime import datetime
 
 with open("../motos.json", "r", encoding="utf-8") as file:
     motos = json.load(file)
@@ -60,6 +62,7 @@ class BikezSpider(scrapy.Spider):
         self.by_brand = defaultdict(list)    # defaultdict(<type 'list'>, {})
         self.existing_api_ids = get_existing_api_ids()
         self.brand_index = {}
+        self.loguru_logger = logger.bind(spider="bikez")
 
         for moto in self.motos:
             brand = normalize_brand(moto.get("brand"))
@@ -73,7 +76,16 @@ class BikezSpider(scrapy.Spider):
                     idx[nm].append(moto)
             self.brand_index[brand] = idx  # brand_index[brand][normalized_model_name] = [moto1, moto2, ...]
 
+        self.stats = {
+            'start_time': datetime.now(),
+            'models_processed': 0,
+            'items_found': 0,
+            'items_with_power': 0,
+            'unique_items': set()
+        }
+
     def start_requests(self):
+        self.loguru_logger.info(f"Bikez Spider запущен")
         for brand, lst in self.by_brand.items():
             url = f"https://bikez.com/models/{brand}_models.php"
             yield scrapy.Request(
@@ -128,8 +140,8 @@ class BikezSpider(scrapy.Spider):
             )
 
     def parse_model(self, response):
+        self.stats['models_processed'] += 1
         model_url = response.meta["model_url"]
-
         soup = BeautifulSoup(response.text, "html.parser")
 
         parsed_data = {}
@@ -229,6 +241,8 @@ class BikezSpider(scrapy.Spider):
             
             # СОХРАНЕНИЕ ТОЛЬКО ПРИ НАЙДЕННОЙ МОЩНОСТИ
             if item.get("engine_power_hp"):
+                self.stats['items_with_power'] += 1
+                self.stats['unique_items'].add(item['api_id'])
                 self.logger.info(f"[НАШЕЛ bikez] {item['model']} - {item.get('engine_power_hp')}")
                 yield item
 
@@ -236,5 +250,26 @@ class BikezSpider(scrapy.Spider):
                 self.logger.info(f"[НАШЕЛ bikez] {item['model']} - нет мощности")
 
             # СОХРАНЕНИЕ ДАЖЕ ПРИ ОТСУТСТВИИ МОЩНОСТИ
+            # self.stats['unique_items'].add(item['api_id'])
             # self.logger.info(f"[НАШЕЛ bikez] {item['model']}")
             # yield item
+
+            self.stats['items_found'] += 1
+
+    def closed(self, reason):
+        self.loguru_logger.info(f"Парсер завершил работу.")
+        self.log_statistics()
+
+    def log_statistics(self):
+        duration = datetime.now() - self.stats['start_time']
+        minutes = duration.total_seconds() / 60
+        
+        self.loguru_logger.info(
+            f"Статистика парсера:\n"
+            f"- Время работы: {minutes:.2f} минут\n"
+            f"- Обработано моделей: {self.stats['models_processed']}\n"
+            f"- Найдено items: {self.stats['items_found']}\n"
+            f"- Items с мощностью: {self.stats['items_with_power']}\n"
+            f"- Уникальных мотоциклов: {len(self.stats['unique_items'])}\n"
+            f"- Скорость: {self.stats['models_processed'] / minutes:.2f} моделей/мин"
+        )

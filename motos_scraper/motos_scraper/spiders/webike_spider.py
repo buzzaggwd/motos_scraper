@@ -5,6 +5,8 @@ import re
 from motos_scraper.items import MotosScraperItem
 from difflib import SequenceMatcher
 import sqlite3
+from loguru import logger
+from datetime import datetime
 
 with open("../motos.json", "r", encoding="utf-8") as f:
     motos = json.load(f)
@@ -53,10 +55,25 @@ class WebikeSpider(scrapy.Spider):
         self.motos = motos
         self.existing_api_ids = get_existing_api_ids()
         self.normalized_motos = {}
+        self.loguru_logger = logger.bind(spider="webike")
+
         for moto in motos:
             if moto["api_id"] not in self.existing_api_ids:
                 norm = normalize(moto["model"])
                 self.normalized_motos.setdefault(norm, []).append(moto)
+
+        self.stats = {
+            'start_time': datetime.now(),
+            'models_processed': 0,
+            'items_found': 0,
+            'items_with_power': 0,
+            'unique_items': set()
+        }
+
+    def start_requests(self):
+        self.loguru_logger.info(f"Webike Spider запущен")
+        for url in self.start_urls:
+            yield scrapy.Request(url, callback=self.parse, meta={"url": url})
 
     def parse(self, response):
         soup = BeautifulSoup(response.text, "html.parser")
@@ -93,6 +110,7 @@ class WebikeSpider(scrapy.Spider):
                 self.logger.debug(f"[ПРОПУСК webike] {title}")
 
     def parse_model_info(self, response):
+        self.stats['models_processed'] += 1
         normalized_name = response.meta["normalized"]
         title = response.meta["title"]
 
@@ -182,6 +200,8 @@ class WebikeSpider(scrapy.Spider):
 
             # СОХРАНЕНИЕ ТОЛЬКО ПРИ НАЙДЕННОЙ МОЩНОСТИ
             if item.get("engine_power_hp"):
+                self.stats['items_with_power'] += 1
+                self.stats['unique_items'].add(item['api_id'])
                 self.logger.info(f"[НАШЕЛ webike] {title} - {item.get('engine_power_hp')}")
                 yield item
 
@@ -189,5 +209,26 @@ class WebikeSpider(scrapy.Spider):
                 self.logger.info(f"[НАШЕЛ webike] {title} - нет мощности")
 
             # СОХРАНЕНИЕ ДАЖЕ ПРИ ОТСУТСТВИИ МОЩНОСТИ
+            # self.stats['unique_items'].add(item['api_id'])
             # self.logger.info(f"[НАШЕЛ webike] {title}")
             # yield item
+
+            self.stats['items_found'] += 1
+
+    def closed(self, reason):
+        self.loguru_logger.info(f"Парсер завершил работу.")
+        self.log_statistics()
+
+    def log_statistics(self):
+        duration = datetime.now() - self.stats['start_time']
+        minutes = duration.total_seconds() / 60
+        
+        self.loguru_logger.info(
+            f"Статистика парсера:\n"
+            f"- Время работы: {minutes:.2f} минут\n"
+            f"- Обработано моделей: {self.stats['models_processed']}\n"
+            f"- Найдено items: {self.stats['items_found']}\n"
+            f"- Items с мощностью: {self.stats['items_with_power']}\n"
+            f"- Уникальных мотоциклов: {len(self.stats['unique_items'])}\n"
+            f"- Скорость: {self.stats['models_processed'] / minutes:.2f} моделей/мин"
+        )

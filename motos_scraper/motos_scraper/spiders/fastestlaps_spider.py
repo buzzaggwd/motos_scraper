@@ -8,6 +8,8 @@ import random
 from scrapy.exceptions import CloseSpider
 import sqlite3
 from collections import defaultdict
+from loguru import logger
+from datetime import datetime
 
 with open("../motos.json", "r", encoding="utf-8") as f:
     motos = json.load(f)
@@ -33,7 +35,7 @@ USER_AGENTS = [
 
 def get_existing_api_ids():
     try:
-        conn = sqlite3.connect("../motos_all_spiders_plus_fastestlaps.db")
+        conn = sqlite3.connect("../motos.db")
         cur = conn.cursor()
         cur.execute("SELECT api_id FROM motos")
         rows = cur.fetchall()
@@ -61,10 +63,24 @@ class FastestlapsSpider(scrapy.Spider):
         self.motos = motos
         self.existing_api_ids = get_existing_api_ids()
         self.moto_map = defaultdict(list)
+        self.loguru_logger = logger.bind(spider="fastestlaps")
+
         for moto in self.motos:
             if moto["api_id"] not in self.existing_api_ids:
                 self.moto_map[normalize(moto.get("model"))].append(moto)
 
+        self.stats = {
+            'start_time': datetime.now(),
+            'models_processed': 0,
+            'items_found': 0,
+            'items_with_power': 0,
+            'unique_items': set()
+        }
+
+    def start_requests(self):
+        self.loguru_logger.info(f"Fastestlaps Spider запущен")
+        for url in self.start_urls:
+            yield scrapy.Request(url, callback=self.parse, meta={"url": url})
 
     def parse(self, response):
         soup = BeautifulSoup(response.text, 'html.parser')
@@ -128,6 +144,7 @@ class FastestlapsSpider(scrapy.Spider):
                         )
 
     def parse_models_info(self, response):
+        self.stats['models_processed'] += 1
         soup = BeautifulSoup(response.text, 'html.parser')
         item = response.meta["item"]
         tables = soup.find_all("table", class_="fl-datasheet")
@@ -206,6 +223,8 @@ class FastestlapsSpider(scrapy.Spider):
 
         # СОХРАНЕНИЕ ТОЛЬКО ПРИ НАЙДЕННОЙ МОЩНОСТИ
         if item.get("engine_power_hp"):
+            self.stats['items_with_power'] += 1
+            self.stats['unique_items'].add(item['api_id'])
             self.logger.info(f"[НАШЕЛ fastestlaps] {item.get('model')} - {item.get('engine_power_hp')}")
             yield item
         else:
@@ -213,10 +232,31 @@ class FastestlapsSpider(scrapy.Spider):
 
 
         # СОХРАНЕНИЕ ДАЖЕ ПРИ ОТСУТСТВИИ МОЩНОСТИ
+        # self.stats['unique_items'].add(item['api_id'])
         # self.logger.info(f"[НАШЕЛ fastestlaps] {item['model']}")
         # yield item
+
+        self.stats['items_found'] += 1
 
 
     def errback_handler(self, failure):
         self.logger.error(f'Ошибка парсинга fastestlaps: {failure.value}')
         self.crawler.stats.inc_value('failed_request_count')
+
+    def closed(self, reason):
+        self.loguru_logger.info(f"Парсер завершил работу.")
+        self.log_statistics()
+
+    def log_statistics(self):
+        duration = datetime.now() - self.stats['start_time']
+        minutes = duration.total_seconds() / 60
+        
+        self.loguru_logger.info(
+            f"Статистика парсера:\n"
+            f"- Время работы: {minutes:.2f} минут\n"
+            f"- Обработано моделей: {self.stats['models_processed']}\n"
+            f"- Найдено items: {self.stats['items_found']}\n"
+            f"- Items с мощностью: {self.stats['items_with_power']}\n"
+            f"- Уникальных мотоциклов: {len(self.stats['unique_items'])}\n"
+            f"- Скорость: {self.stats['models_processed'] / minutes:.2f} моделей/мин"
+        )

@@ -1,6 +1,7 @@
 venv/
 __pycache__/
 scrapy.log
+statistics.log
 *.json
 *.db
 *.sqlite
